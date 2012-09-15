@@ -1,45 +1,33 @@
 package biz.aQute.resolve.internal;
 
-import java.text.MessageFormat;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
+import static org.osgi.framework.namespace.BundleNamespace.*;
+import static org.osgi.framework.namespace.PackageNamespace.*;
+
+import java.text.*;
+import java.util.*;
 import java.util.Map.Entry;
 
-import org.osgi.framework.Version;
-import org.osgi.framework.namespace.IdentityNamespace;
-import org.osgi.namespace.contract.ContractNamespace;
-import org.osgi.resource.Capability;
-import org.osgi.resource.Namespace;
-import org.osgi.resource.Requirement;
-import org.osgi.resource.Resource;
-import org.osgi.resource.Wiring;
-import org.osgi.service.log.LogService;
-import org.osgi.service.repository.Repository;
-import org.osgi.service.resolver.HostedCapability;
-import org.osgi.service.resolver.ResolveContext;
+import org.osgi.framework.*;
+import org.osgi.framework.namespace.*;
+import org.osgi.namespace.contract.*;
+import org.osgi.resource.*;
+import org.osgi.service.log.*;
+import org.osgi.service.repository.*;
+import org.osgi.service.resolver.*;
 
-import aQute.bnd.build.model.BndEditModel;
-import aQute.bnd.build.model.EE;
-import aQute.bnd.service.Registry;
-import aQute.bnd.osgi.resource.CapReqBuilder;
-import aQute.bnd.osgi.resource.Filters;
-import aQute.bnd.osgi.resource.ResourceBuilder;
-import aQute.libg.filters.AndFilter;
+import aQute.bnd.build.model.*;
+import aQute.bnd.header.*;
+import aQute.bnd.osgi.resource.*;
+import aQute.bnd.service.*;
+import aQute.libg.filters.*;
 import aQute.libg.filters.Filter;
-import aQute.libg.filters.LiteralFilter;
-import aQute.libg.filters.SimpleFilter;
-import aQute.bnd.header.Attrs;
-import aQute.bnd.header.Parameters;
 
 public class BndrunResolveContext extends ResolveContext {
 
     private static final String CONTRACT_OSGI_FRAMEWORK = "OSGiFramework";
     private static final String IDENTITY_INITIAL_RESOURCE = "<<INITIAL>>";
+
+    private static final String SYMBOLICNAME_ATTRIBUTE = "bundle-symbolic-name";
 
     private final List<Repository> repos = new LinkedList<Repository>();
     private final Map<Requirement,List<Capability>> optionalRequirements = new HashMap<Requirement,List<Capability>>();
@@ -53,6 +41,7 @@ public class BndrunResolveContext extends ResolveContext {
     private Resource frameworkResource = null;
     private Version frameworkResourceVersion = null;
     private FrameworkResourceRepository frameworkResourceRepo;
+    private Comparator<Capability> capComparator = new CapabilityComparator();
 
     private Resource inputRequirementsResource = null;
     private EE ee;
@@ -223,7 +212,7 @@ public class BndrunResolveContext extends ResolveContext {
             }
         }
 
-        // int score = 0;
+        int score = 0;
         for (Repository repo : repos) {
             Map<Requirement,Collection<Capability>> providers = repo.findProviders(Collections.singleton(requirement));
             Collection<Capability> capabilities = providers.get(requirement);
@@ -232,12 +221,12 @@ public class BndrunResolveContext extends ResolveContext {
                 for (Capability capability : capabilities) {
                     // filter out OSGi frameworks & other forbidden resource
                     if (isPermitted(capability.getResource()))
-                        result.add(capability);
+                        result.add(new CapabilityWrapper(capability, score));
                 }
                 // for (Capability capability : capabilities)
                 // scoreResource(capability.getResource(), score);
             }
-            // score--;
+            score--;
         }
 
         if (Namespace.RESOLUTION_OPTIONAL.equals(requirement.getDirectives().get(Namespace.REQUIREMENT_RESOLUTION_DIRECTIVE))) {
@@ -254,9 +243,9 @@ public class BndrunResolveContext extends ResolveContext {
                 optionalRequirements.put(requirement, result);
 
             return fwkCaps;
-        } else {
-            return result;
         }
+        Collections.sort(result, getCapabilityComparator());
+        return result;
     }
 
     private boolean isPermitted(Resource resource) {
@@ -293,7 +282,9 @@ public class BndrunResolveContext extends ResolveContext {
 
     @Override
     public int insertHostedCapability(List<Capability> capabilities, HostedCapability hostedCapability) {
-        throw new UnsupportedOperationException("TODO");
+        capabilities.add(hostedCapability);
+        Collections.sort(capabilities, getCapabilityComparator());
+        return capabilities.indexOf(hostedCapability);
     }
 
     @Override
@@ -319,4 +310,185 @@ public class BndrunResolveContext extends ResolveContext {
         return optionalRequirements;
     }
 
+    private Comparator<Capability> getCapabilityComparator() {
+        return capComparator;
+    }
+
+	Resource getFrameworkResource() {
+		return frameworkResource;
+	}
+
+	protected boolean isInputRequirement(Capability capability) {
+		List<Requirement> reqs = inputRequirementsResource.getRequirements(IdentityNamespace.IDENTITY_NAMESPACE);
+		if (reqs == null
+				|| (capability.getAttributes().get(SYMBOLICNAME_ATTRIBUTE) == null && capability.getAttributes().get(
+						IdentityNamespace.IDENTITY_NAMESPACE) == null)) {
+			return false;
+		}
+
+		Hashtable<String,Object> id_prop = new Hashtable<String,Object>();
+		String bsn = (String) capability.getAttributes().get(SYMBOLICNAME_ATTRIBUTE);
+		Version version = getVersion(capability, BundleNamespace.CAPABILITY_BUNDLE_VERSION_ATTRIBUTE);
+		if (bsn == null) {
+			bsn = (String) capability.getAttributes().get(IdentityNamespace.IDENTITY_NAMESPACE);
+			version = getVersion(capability, IdentityNamespace.CAPABILITY_VERSION_ATTRIBUTE);
+		}
+		id_prop.put(IdentityNamespace.IDENTITY_NAMESPACE, bsn);
+		if (version != null) {
+			id_prop.put(IdentityNamespace.CAPABILITY_VERSION_ATTRIBUTE, version.toString());
+		}
+		for (Requirement req : reqs) {
+			if (IdentityNamespace.IDENTITY_NAMESPACE.equals(req.getNamespace())) {
+				String filterStr = req.getDirectives().get(Namespace.REQUIREMENT_FILTER_DIRECTIVE);
+				try {
+					if (FrameworkUtil.createFilter(filterStr).match(id_prop))
+						return true;
+				}
+				catch (InvalidSyntaxException e) {}
+			}
+		}
+		return false;
+	}
+
+	static Version getVersion(Capability cap, String attr) {
+		Object versionatt = cap.getAttributes().get(attr);
+		if (versionatt instanceof Version)
+			return (Version) versionatt;
+		else if (versionatt instanceof String)
+			return Version.parseVersion((String) versionatt);
+		else
+			return Version.emptyVersion;
+	}
+
+	private static class CapabilityWrapper implements Capability {
+
+		private final Capability	capability;
+		private final Integer		score;
+
+		public CapabilityWrapper(Capability capability, Integer score) {
+			this.capability = capability;
+			this.score = score;
+		}
+
+		public String getNamespace() {
+			return capability.getNamespace();
+		}
+
+		public Map<String,String> getDirectives() {
+			return capability.getDirectives();
+		}
+
+		public Map<String,Object> getAttributes() {
+			return capability.getAttributes();
+
+		}
+
+		public Resource getResource() {
+			return capability.getResource();
+		}
+
+		public Integer getScore() {
+			return score;
+		}
+
+		public String toString() {
+			return capability.toString();
+		}
+
+		@Override
+		public boolean equals(Object obj) {
+			return capability.equals(obj);
+		}
+
+		@Override
+		public int hashCode() {
+			return capability.hashCode();
+		}
+	}
+
+	private class CapabilityComparator implements Comparator<Capability> {
+
+		public CapabilityComparator() {}
+
+		public int compare(Capability o1, Capability o2) {
+
+			Resource res1 = o1.getResource();
+			Resource res2 = o2.getResource();
+
+			// prefer framework bundle
+			if (o1.getResource() == getFrameworkResource())
+				return -1;
+			if (o2.getResource() == getFrameworkResource())
+				return +1;
+
+			// prefer input requirements
+			if (isInputRequirement(o1) || isInputRequirementResource(o1.getResource())) {
+				if (!isInputRequirement(o2))
+					return -1;
+			}
+			if (isInputRequirement(o2) || isInputRequirementResource(o2.getResource())) {
+				if (!isInputRequirement(o1))
+					return +1;
+			}
+
+			Map<Resource,Wiring> wirings = getWirings();
+			Wiring w1 = wirings.get(res1);
+			Wiring w2 = wirings.get(res2);
+
+			// prefer wired
+			if (w1 != null && w2 == null)
+				return -1;
+			if (w1 == null && w2 != null)
+				return +1;
+
+			// prefer higher package version
+			String ns1 = o1.getNamespace();
+			String ns2 = o2.getNamespace();
+			if (PACKAGE_NAMESPACE.equals(ns1) && PACKAGE_NAMESPACE.equals(ns2)) {
+				Version v1 = getVersion(o1, PackageNamespace.CAPABILITY_VERSION_ATTRIBUTE);
+				Version v2 = getVersion(o2, PackageNamespace.CAPABILITY_VERSION_ATTRIBUTE);
+				if (!v1.equals(v2))
+					return v2.compareTo(v1);
+			}
+
+			// prefer higher resource version
+			if (BUNDLE_NAMESPACE.equals(ns1) && BUNDLE_NAMESPACE.equals(ns2)) {
+				Version v1 = getVersion(o1, BundleNamespace.CAPABILITY_BUNDLE_VERSION_ATTRIBUTE);
+				Version v2 = getVersion(o2, BundleNamespace.CAPABILITY_BUNDLE_VERSION_ATTRIBUTE);
+				if (!v1.equals(v2))
+					return v2.compareTo(v1);
+			} else if (IdentityNamespace.IDENTITY_NAMESPACE.equals(ns1)
+					&& IdentityNamespace.IDENTITY_NAMESPACE.equals(ns2)) {
+				Version v1 = getVersion(o1, IdentityNamespace.CAPABILITY_VERSION_ATTRIBUTE);
+				Version v2 = getVersion(o2, IdentityNamespace.CAPABILITY_VERSION_ATTRIBUTE);
+				if (!v1.equals(v2))
+					return v2.compareTo(v1);
+			}
+
+			// same package version, higher bundle version
+			if (PACKAGE_NAMESPACE.equals(ns1) && PACKAGE_NAMESPACE.equals(ns2)) {
+				String bsn1 = (String) o1.getAttributes().get(SYMBOLICNAME_ATTRIBUTE);
+				String bsn2 = (String) o2.getAttributes().get(SYMBOLICNAME_ATTRIBUTE);
+				if (bsn1 != null && bsn1.equals(bsn2)) {
+					Version v1 = getVersion(o1, BundleNamespace.CAPABILITY_BUNDLE_VERSION_ATTRIBUTE);
+					Version v2 = getVersion(o2, BundleNamespace.CAPABILITY_BUNDLE_VERSION_ATTRIBUTE);
+					if (!v1.equals(v2))
+						return v2.compareTo(v1);
+				}
+			}
+
+			// obey repository order
+			if (o1 instanceof CapabilityWrapper && o2 instanceof CapabilityWrapper) {
+				CapabilityWrapper cw1 = (CapabilityWrapper) o1;
+				CapabilityWrapper cw2 = (CapabilityWrapper) o2;
+				int res = cw2.getScore().compareTo(cw1.getScore());
+				if (res != 0) {
+					return res;
+				}
+			}
+
+			// prefer the resource with most capabilities
+			return res2.getCapabilities(null).size() - res1.getCapabilities(null).size();
+		}
+	}
 }
