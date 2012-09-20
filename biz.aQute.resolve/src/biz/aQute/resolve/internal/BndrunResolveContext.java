@@ -213,6 +213,7 @@ public class BndrunResolveContext extends ResolveContext {
         }
 
         int score = 0;
+        Map<String, Resource> resources = new HashMap<String, Resource>();
         for (Repository repo : repos) {
             Map<Requirement,Collection<Capability>> providers = repo.findProviders(Collections.singleton(requirement));
             Collection<Capability> capabilities = providers.get(requirement);
@@ -220,8 +221,25 @@ public class BndrunResolveContext extends ResolveContext {
                 result.ensureCapacity(result.size() + capabilities.size());
                 for (Capability capability : capabilities) {
                     // filter out OSGi frameworks & other forbidden resource
-                    if (isPermitted(capability.getResource()))
-                        result.add(new CapabilityWrapper(capability, score));
+                    if (!isPermitted(capability.getResource()))
+                        continue;
+                    
+            		String bsn = (String) capability.getAttributes().get(SYMBOLICNAME_ATTRIBUTE);
+            		Version version = getVersion(capability, BundleNamespace.CAPABILITY_BUNDLE_VERSION_ATTRIBUTE);
+            		if (bsn == null) {
+            			bsn = (String) capability.getAttributes().get(IdentityNamespace.IDENTITY_NAMESPACE);
+            			version = getVersion(capability, IdentityNamespace.CAPABILITY_VERSION_ATTRIBUTE);
+            		}
+            		String key = bsn + '/' + version;
+            		Resource resource = resources.get(key);
+            		// Only one resource with the same bsn / version
+            		if (resource == null) {
+            			resources.put(key, capability.getResource());
+            		} else if (capability.getResource() != resource) {
+            			continue;
+            		}
+
+            		result.add(new CapabilityWrapper(capability, score));
                 }
                 // for (Capability capability : capabilities)
                 // scoreResource(capability.getResource(), score);
