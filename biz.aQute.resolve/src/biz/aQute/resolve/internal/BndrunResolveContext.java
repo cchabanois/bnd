@@ -12,6 +12,7 @@ import org.osgi.framework.namespace.*;
 import org.osgi.namespace.contract.*;
 import org.osgi.resource.*;
 import org.osgi.service.log.*;
+import org.osgi.service.packageadmin.*;
 import org.osgi.service.repository.*;
 import org.osgi.service.resolver.*;
 
@@ -125,7 +126,7 @@ public class BndrunResolveContext extends ResolveContext {
                             if (frameworkResourceVersion == null || (foundVersion.compareTo(frameworkResourceVersion) > 0)) {
                                 frameworkResource = frameworkCap.getResource();
                                 frameworkResourceVersion = foundVersion;
-                                frameworkResourceRepo = new FrameworkResourceRepository(frameworkResource, ee);
+                                frameworkResourceRepo = new FrameworkResourceRepository(frameworkResource, ee, runModel.getSystemPackages());
                             }
                         }
                     }
