@@ -1,39 +1,30 @@
 package biz.aQute.resolve.internal;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
+import java.io.*;
+import java.util.*;
 
-import org.osgi.framework.Constants;
-import org.osgi.framework.Version;
-import org.osgi.framework.namespace.BundleNamespace;
-import org.osgi.framework.namespace.ExecutionEnvironmentNamespace;
-import org.osgi.framework.namespace.HostNamespace;
-import org.osgi.framework.namespace.PackageNamespace;
-import org.osgi.resource.Capability;
-import org.osgi.resource.Requirement;
-import org.osgi.resource.Resource;
-import org.osgi.service.repository.Repository;
+import org.osgi.framework.*;
+import org.osgi.framework.namespace.*;
+import org.osgi.resource.*;
+import org.osgi.service.repository.*;
 
-import aQute.bnd.build.model.EE;
-import aQute.bnd.deployer.repository.CapabilityIndex;
-import aQute.bnd.header.Parameters;
-import aQute.bnd.osgi.resource.CapReqBuilder;
+import aQute.bnd.build.model.*;
+import aQute.bnd.build.model.clauses.*;
+import aQute.bnd.deployer.repository.*;
+import aQute.bnd.header.*;
+import aQute.bnd.osgi.resource.*;
 
 public class FrameworkResourceRepository implements Repository {
 
     private final CapabilityIndex capIndex = new CapabilityIndex();
     private final Resource framework;
     private final EE ee;
+    private final List<ExportedPackage> runSystemPackages;
 
-    public FrameworkResourceRepository(Resource frameworkResource, EE ee) {
+    public FrameworkResourceRepository(Resource frameworkResource, EE ee, List<ExportedPackage> runSystemPackages) {
         this.framework = frameworkResource;
         this.ee = ee;
+        this.runSystemPackages = runSystemPackages;
         capIndex.addResource(frameworkResource);
 
         // Add EEs
@@ -51,6 +42,9 @@ public class FrameworkResourceRepository implements Repository {
 
         // Add JRE packages
         loadJREPackages();
+
+        // Add -runsystempackages
+        addRunSystemPackages();
     }
 
     public void addFrameworkCapability(CapReqBuilder builder) {
@@ -83,6 +77,19 @@ public class FrameworkResourceRepository implements Repository {
             } catch (IOException e) {
                 throw new IllegalStateException("Error loading JRE package properties", e);
             }
+        }
+    }
+
+    private void addRunSystemPackages() {
+    	if (runSystemPackages == null)
+    		return;
+
+        for (ExportedPackage exported : runSystemPackages) {
+            CapReqBuilder builder = new CapReqBuilder(PackageNamespace.PACKAGE_NAMESPACE);
+            builder.addAttribute(PackageNamespace.PACKAGE_NAMESPACE, exported.getName());
+            builder.addAttribute(PackageNamespace.CAPABILITY_VERSION_ATTRIBUTE, Version.parseVersion(exported.getVersionString()));
+            Capability cap = builder.setResource(framework).buildCapability();
+            capIndex.addCapability(cap);
         }
     }
 
