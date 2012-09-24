@@ -7,6 +7,7 @@ import java.util.Map.Entry;
 
 import org.osgi.resource.*;
 
+import aQute.bnd.build.*;
 import aQute.bnd.build.model.clauses.*;
 import aQute.bnd.build.model.conversions.*;
 import aQute.bnd.header.*;
@@ -161,6 +162,7 @@ public class BndEditModel {
 	private Converter<String,Collection< ? extends String>>			runReposFormatter			= new CollectionFormatter<String>(
 																										LIST_SEPARATOR,
 																										aQute.bnd.osgi.Constants.EMPTY_HEADER);
+	private Workspace	workspace;
 
 	// Converter<String, ResolveMode> resolveModeFormatter =
 	// EnumFormatter.create(ResolveMode.class, ResolveMode.manual);
@@ -794,5 +796,13 @@ public class BndEditModel {
 
 	public File getBndResource() {
 		return bndResource;
+	}
+
+	public void setWorkspace(Workspace workspace) {
+		this.workspace = workspace;
+	}
+
+	public Workspace getWorkspace() {
+		return workspace;
 	}
 }

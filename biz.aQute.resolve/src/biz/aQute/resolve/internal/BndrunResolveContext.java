@@ -3,6 +3,7 @@ package biz.aQute.resolve.internal;
 import static org.osgi.framework.namespace.BundleNamespace.*;
 import static org.osgi.framework.namespace.PackageNamespace.*;
 
+import java.io.*;
 import java.text.*;
 import java.util.*;
 import java.util.Map.Entry;
@@ -11,13 +12,15 @@ import org.osgi.framework.*;
 import org.osgi.framework.namespace.*;
 import org.osgi.namespace.contract.*;
 import org.osgi.resource.*;
+import org.osgi.resource.Resource;
 import org.osgi.service.log.*;
-import org.osgi.service.packageadmin.*;
 import org.osgi.service.repository.*;
 import org.osgi.service.resolver.*;
 
+import aQute.bnd.build.*;
 import aQute.bnd.build.model.*;
 import aQute.bnd.header.*;
+import aQute.bnd.osgi.*;
 import aQute.bnd.osgi.resource.*;
 import aQute.bnd.service.*;
 import aQute.libg.filters.*;
@@ -137,19 +140,47 @@ public class BndrunResolveContext extends ResolveContext {
 
     private void constructInputRequirements() {
         List<Requirement> requires = runModel.getRunRequires();
-        if (requires == null || requires.isEmpty()) {
+        String resourceBsn = getResourceBsn(runModel);
+        if ((requires == null || requires.isEmpty()) && resourceBsn == null) {
             inputRequirementsResource = null;
         } else {
             ResourceBuilder resBuilder = new ResourceBuilder();
             CapReqBuilder identity = new CapReqBuilder(IdentityNamespace.IDENTITY_NAMESPACE).addAttribute(IdentityNamespace.IDENTITY_NAMESPACE, IDENTITY_INITIAL_RESOURCE);
             resBuilder.addCapability(identity);
 
-            for (Requirement req : requires) {
-                resBuilder.addRequirement(req);
+            if (requires != null) {
+	            for (Requirement req : requires) {
+	                resBuilder.addRequirement(req);
+	            }
+            }
+
+            if (resourceBsn != null) {
+            	CapReqBuilder resourceReq = new CapReqBuilder(IdentityNamespace.IDENTITY_NAMESPACE).addAttribute(IdentityNamespace.IDENTITY_NAMESPACE, resourceBsn);
+                resourceReq.addDirective(Namespace.REQUIREMENT_FILTER_DIRECTIVE, new SimpleFilter(IdentityNamespace.IDENTITY_NAMESPACE, resourceBsn).toString());
+            	resBuilder.addRequirement(resourceReq);
+            	
             }
 
             inputRequirementsResource = resBuilder.build();
         }
+    }
+
+    private static String getResourceBsn(BndEditModel runModel) {
+        if (runModel.getBndResource() != null && runModel.getBndResource().getName().endsWith(".bnd") && runModel.getWorkspace() != null) {
+            File projectDir = runModel.getBndResource().getParentFile();
+            try {
+				Project project = runModel.getWorkspace().getProject(projectDir.getName());
+				if (project == null)
+					return null;
+				if (runModel.isProjectFile()) 
+					return project.getSubBuilders().iterator().next().getBsn();
+				Builder builder = project.getSubBuilder(runModel.getBndResource());
+				return builder.getBsn();
+            }
+			catch (Exception e) {
+			}
+        }
+    	return null;
     }
 
     public static boolean isInputRequirementResource(Resource resource) {
