@@ -531,23 +531,4 @@ public class BndrunResolveContext extends ResolveContext {
 			return res2.getCapabilities(null).size() - res1.getCapabilities(null).size();
 		}
 	}
-	private class BundleVersionComparator implements Comparator<Capability> {
-
-		public int compare(Capability o1, Capability o2) {
-
-			String ns1 = o1.getNamespace();
-			String ns2 = o2.getNamespace();
-
-			// same package version, higher bundle version
-			String bsn1 = (String) o1.getAttributes().get(SYMBOLICNAME_ATTRIBUTE);
-			String bsn2 = (String) o2.getAttributes().get(SYMBOLICNAME_ATTRIBUTE);
-			if (bsn1 != null && bsn1.equals(bsn2)) {
-				Version v1 = getVersion(o1, BundleNamespace.CAPABILITY_BUNDLE_VERSION_ATTRIBUTE);
-				Version v2 = getVersion(o2, BundleNamespace.CAPABILITY_BUNDLE_VERSION_ATTRIBUTE);
-				if (!v1.equals(v2))
-					return v2.compareTo(v1);
-			}
-			return 0;
-		}
-	}
 }
