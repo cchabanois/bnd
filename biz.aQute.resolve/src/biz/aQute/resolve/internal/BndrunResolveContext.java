@@ -35,6 +35,7 @@ public class BndrunResolveContext extends ResolveContext {
 
     private final List<Repository> repos = new LinkedList<Repository>();
     private final Map<Requirement,List<Capability>> optionalRequirements = new HashMap<Requirement,List<Capability>>();
+    private final Map<String,ArrayList<Capability>> cache = new HashMap<String, ArrayList<Capability>>();
 
     private final BndEditModel runModel;
     private final Registry registry;
@@ -232,7 +233,12 @@ public class BndrunResolveContext extends ResolveContext {
     @Override
     public List<Capability> findProviders(Requirement requirement) {
         init();
-        ArrayList<Capability> result = new ArrayList<Capability>();
+        ArrayList<Capability> result = cache.get(requirement.toString());
+        if (result != null) {
+        	return new ArrayList<Capability>(result);
+        }
+
+        result = new ArrayList<Capability>();
 
         // The selected OSGi framework always has the first chance to provide the capabilities
         if (frameworkResourceRepo != null) {
@@ -245,7 +251,6 @@ public class BndrunResolveContext extends ResolveContext {
         }
 
         int score = 0;
-        Map<String, Resource> resources = new HashMap<String, Resource>();
         for (Repository repo : repos) {
             Map<Requirement,Collection<Capability>> providers = repo.findProviders(Collections.singleton(requirement));
             Collection<Capability> capabilities = providers.get(requirement);
@@ -255,22 +260,6 @@ public class BndrunResolveContext extends ResolveContext {
                     // filter out OSGi frameworks & other forbidden resource
                     if (!isPermitted(capability.getResource()))
                         continue;
-                    
-            		String bsn = (String) capability.getAttributes().get(SYMBOLICNAME_ATTRIBUTE);
-            		Version version = getVersion(capability, BundleNamespace.CAPABILITY_BUNDLE_VERSION_ATTRIBUTE);
-            		if (bsn == null) {
-            			bsn = (String) capability.getAttributes().get(IdentityNamespace.IDENTITY_NAMESPACE);
-            			version = getVersion(capability, IdentityNamespace.CAPABILITY_VERSION_ATTRIBUTE);
-            		}
-            		String key = bsn + '/' + version;
-            		Resource resource = resources.get(key);
-            		// Only one resource with the same bsn / version
-            		if (resource == null) {
-            			resources.put(key, capability.getResource());
-            		} else if (capability.getResource() != resource) {
-            			continue;
-            		}
-
             		result.add(new CapabilityWrapper(capability, score));
                 }
                 // for (Capability capability : capabilities)
@@ -295,7 +284,8 @@ public class BndrunResolveContext extends ResolveContext {
             return fwkCaps;
         }
         Collections.sort(result, getCapabilityComparator());
-        return result;
+        cache.put(requirement.toString(), result);
+        return new ArrayList<Capability>(result);
     }
 
     private boolean isPermitted(Resource resource) {
@@ -539,6 +529,25 @@ public class BndrunResolveContext extends ResolveContext {
 
 			// prefer the resource with most capabilities
 			return res2.getCapabilities(null).size() - res1.getCapabilities(null).size();
+		}
+	}
+	private class BundleVersionComparator implements Comparator<Capability> {
+
+		public int compare(Capability o1, Capability o2) {
+
+			String ns1 = o1.getNamespace();
+			String ns2 = o2.getNamespace();
+
+			// same package version, higher bundle version
+			String bsn1 = (String) o1.getAttributes().get(SYMBOLICNAME_ATTRIBUTE);
+			String bsn2 = (String) o2.getAttributes().get(SYMBOLICNAME_ATTRIBUTE);
+			if (bsn1 != null && bsn1.equals(bsn2)) {
+				Version v1 = getVersion(o1, BundleNamespace.CAPABILITY_BUNDLE_VERSION_ATTRIBUTE);
+				Version v2 = getVersion(o2, BundleNamespace.CAPABILITY_BUNDLE_VERSION_ATTRIBUTE);
+				if (!v1.equals(v2))
+					return v2.compareTo(v1);
+			}
+			return 0;
 		}
 	}
 }
